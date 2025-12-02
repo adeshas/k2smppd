@@ -136,10 +136,15 @@ Octstr *smpp_server_access_log_timestamp()
 {
     struct timeval tv;
     struct tm tm;
+    struct tm *tmp;
     char buffer[64];
 
     gettimeofday(&tv, NULL);
-    gw_localtime_r(&tv.tv_sec, &tm);
+    tmp = gw_localtime(tv.tv_sec);
+    if (tmp == NULL) {
+        return NULL;
+    }
+    tm = *tmp;
 
     gw_strftime(buffer, sizeof buffer, "%Y-%m-%d %H:%M:%S", &tm);
     return octstr_format("%s.%03ld", buffer, (long) (tv.tv_usec / 1000));
