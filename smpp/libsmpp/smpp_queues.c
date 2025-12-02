@@ -286,7 +286,12 @@ void smpp_queues_callback_deliver_sm_resp(void *context, long status) {
     if (smpp_queued_pdu->pdu && smpp_queued_pdu->pdu->type == deliver_sm) {
         double response_time = 0.0;
 
-        if (smpp_queued_pdu->time_sent > 0) {
+        if (smpp_queued_pdu->time_sent_tv.tv_sec > 0 || smpp_queued_pdu->time_sent_tv.tv_usec > 0) {
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            response_time = (now.tv_sec - smpp_queued_pdu->time_sent_tv.tv_sec) +
+                            (now.tv_usec - smpp_queued_pdu->time_sent_tv.tv_usec) / 1000000.0;
+        } else if (smpp_queued_pdu->time_sent > 0) {
             response_time = difftime(time(NULL), smpp_queued_pdu->time_sent);
         }
 
@@ -980,6 +985,7 @@ void smpp_queues_outbound_thread(void *arg) {
             if(smpp_queued_pdu->callback) {
                 callback = 1;
                 smpp_queued_pdu->time_sent = time(NULL);
+                gettimeofday(&smpp_queued_pdu->time_sent_tv, NULL);
             } else {
                 callback = 0;
             }

@@ -263,7 +263,7 @@ Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *time
                 if (info->status >= 0) smpp_server_access_log_append_num(line, info->status);
                 break;
             case 'T':
-                if (info->srt > 0) smpp_server_access_log_append_double(line, info->srt);
+                if (info->srt >= 0) smpp_server_access_log_append_double(line, info->srt);
                 break;
             default:
                 octstr_append_char(line, '%');
