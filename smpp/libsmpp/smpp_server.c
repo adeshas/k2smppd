@@ -60,6 +60,7 @@
  * 
  */ 
 #include "gwlib/gwlib.h"
+#include <sys/time.h>
 #include "gw/smsc/smpp_pdu.h"
 #include "gw/load.h"
 #include "gw/msg.h"
@@ -74,6 +75,228 @@
 #include "smpp_route.h"
 #include "smpp_http_server.h"
 #include "smpp_plugin.h"
+
+static const char *DEFAULT_ACCESS_LOG_FORMAT = "%t %l [SMSC:%i] [SVC:%n] [ACT:%A] [BINF:%B] [FID:%F] [META:%D] [from:%p] [to:%P] [flags:%m:%c:%M:%C:%d] [msg:%L:%b] [udh:%U:%u]";
+
+static void smpp_server_access_log_do_close(SMPPServer *smpp_server)
+{
+    if (smpp_server == NULL) {
+        return;
+    }
+
+    if (smpp_server->access_log) {
+        fclose(smpp_server->access_log);
+        smpp_server->access_log = NULL;
+    }
+
+    octstr_destroy(smpp_server->access_logfile);
+    smpp_server->access_logfile = NULL;
+}
+
+int smpp_server_access_log_open(SMPPServer *smpp_server, Octstr *filename)
+{
+    int ret = 0;
+
+    if (smpp_server == NULL || filename == NULL) {
+        return -1;
+    }
+
+    if (smpp_server->access_log_lock == NULL) {
+        smpp_server->access_log_lock = gw_rwlock_create();
+    }
+
+    gw_rwlock_wrlock(smpp_server->access_log_lock);
+
+    smpp_server_access_log_do_close(smpp_server);
+    smpp_server->access_logfile = octstr_duplicate(filename);
+
+    smpp_server->access_log = fopen(octstr_get_cstr(filename), "a");
+    if (smpp_server->access_log == NULL) {
+        error(0, "Failed to open access-log %s", octstr_get_cstr(filename));
+        ret = -1;
+    } else {
+        info(0, "Access logging to %s", octstr_get_cstr(filename));
+    }
+
+    gw_rwlock_unlock(smpp_server->access_log_lock);
+
+    return ret;
+}
+
+void smpp_server_access_log_reopen(SMPPServer *smpp_server)
+{
+    if (smpp_server == NULL || smpp_server->access_logfile == NULL) {
+        return;
+    }
+
+    smpp_server_access_log_open(smpp_server, smpp_server->access_logfile);
+}
+
+Octstr *smpp_server_access_log_timestamp()
+{
+    struct timeval tv;
+    struct tm tm;
+    struct tm *tmp;
+    char buffer[64];
+
+    gettimeofday(&tv, NULL);
+    tmp = gw_localtime(tv.tv_sec);
+    if (tmp == NULL) {
+        return NULL;
+    }
+    tm = *tmp;
+
+    gw_strftime(buffer, sizeof buffer, "%Y-%m-%d %H:%M:%S", &tm);
+    return octstr_format("%s.%03ld", buffer, (long) (tv.tv_usec / 1000));
+}
+
+static void smpp_server_access_log_append_num(Octstr *line, long value)
+{
+    Octstr *tmp = octstr_format("%ld", value);
+    octstr_append(line, tmp);
+    octstr_destroy(tmp);
+}
+
+static void smpp_server_access_log_append_double(Octstr *line, double value)
+{
+    Octstr *tmp = octstr_format("%.3f", value);
+    octstr_append(line, tmp);
+    octstr_destroy(tmp);
+}
+
+Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *timestamp, SMPPAccessLogInfo *info)
+{
+    long i;
+    long len;
+    Octstr *line;
+    Octstr *fmt;
+
+    if (smpp_server == NULL || timestamp == NULL || info == NULL) {
+        return NULL;
+    }
+
+    gw_rwlock_rdlock(smpp_server->access_log_lock);
+    fmt = smpp_server->access_log_format ? smpp_server->access_log_format : octstr_imm(DEFAULT_ACCESS_LOG_FORMAT);
+    line = octstr_create("");
+    len = octstr_len(fmt);
+
+    for (i = 0; i < len; ++i) {
+        int ch = octstr_get_char(fmt, i);
+
+        if (ch != '%') {
+            octstr_append_char(line, ch);
+            continue;
+        }
+
+        if (++i >= len) {
+            break;
+        }
+
+        ch = octstr_get_char(fmt, i);
+
+        switch (ch) {
+            case '%':
+                octstr_append_char(line, '%');
+                break;
+            case 't':
+                octstr_append(line, timestamp);
+                break;
+            case 'l':
+                if (info->event) octstr_append(line, info->event);
+                break;
+            case 'x':
+                if (info->direction) octstr_append(line, info->direction);
+                break;
+            case 'y':
+                if (info->pdu_type) octstr_append(line, info->pdu_type);
+                break;
+            case 'i':
+                if (info->system_id) octstr_append(line, info->system_id);
+                break;
+            case 'I':
+                if (info->ip) octstr_append(line, info->ip);
+                break;
+            case 'n':
+                if (info->service_type) octstr_append(line, info->service_type);
+                break;
+            case 'A':
+                if (info->account) octstr_append(line, info->account);
+                break;
+            case 'B':
+                if (info->bearerbox_id) octstr_append(line, info->bearerbox_id);
+                break;
+            case 'F':
+                if (info->foreign_id) octstr_append(line, info->foreign_id);
+                break;
+            case 'D':
+                if (info->meta_data) octstr_append(line, info->meta_data);
+                break;
+            case 'p':
+                if (info->from) octstr_append(line, info->from);
+                break;
+            case 'P':
+                if (info->to) octstr_append(line, info->to);
+                break;
+            case 'm':
+                smpp_server_access_log_append_num(line, info->flag_mclass);
+                break;
+            case 'c':
+                smpp_server_access_log_append_num(line, info->flag_coding);
+                break;
+            case 'M':
+                smpp_server_access_log_append_num(line, info->flag_mwi);
+                break;
+            case 'C':
+                smpp_server_access_log_append_num(line, info->flag_compress);
+                break;
+            case 'd':
+                smpp_server_access_log_append_num(line, info->flag_validity);
+                break;
+            case 'L':
+                smpp_server_access_log_append_num(line, info->message_length);
+                break;
+            case 'b':
+                if (info->message) octstr_append(line, info->message);
+                break;
+            case 'U':
+                smpp_server_access_log_append_num(line, info->udh_length);
+                break;
+            case 'u':
+                if (info->udh_data) octstr_append(line, info->udh_data);
+                break;
+            case 's':
+                if (info->status >= 0) smpp_server_access_log_append_num(line, info->status);
+                break;
+            case 'T':
+                if (info->srt > 0) smpp_server_access_log_append_double(line, info->srt);
+                break;
+            default:
+                octstr_append_char(line, '%');
+                octstr_append_char(line, ch);
+                break;
+        }
+    }
+
+    gw_rwlock_unlock(smpp_server->access_log_lock);
+
+    return line;
+}
+
+void smpp_server_access_log_entry(SMPPServer *smpp_server, Octstr *line)
+{
+    if (smpp_server == NULL || smpp_server->access_log == NULL || line == NULL) {
+        return;
+    }
+
+    gw_rwlock_rdlock(smpp_server->access_log_lock);
+
+    if (smpp_server->access_log) {
+        fprintf(smpp_server->access_log, "%s\n", octstr_get_cstr(line));
+        fflush(smpp_server->access_log);
+    }
+
+    gw_rwlock_unlock(smpp_server->access_log_lock);
+}
 
 SMPPServer *smpp_server_create() {
     SMPPServer *smpp_server = gw_malloc(sizeof (SMPPServer));
@@ -107,6 +330,11 @@ SMPPServer *smpp_server_create() {
     smpp_server->ip_blocklist_time = 0;
     smpp_server->ip_blocklist_exempt_ips = NULL;
 
+    smpp_server->access_logfile = NULL;
+    smpp_server->access_log_format = octstr_create(DEFAULT_ACCESS_LOG_FORMAT);
+    smpp_server->access_log = NULL;
+    smpp_server->access_log_lock = gw_rwlock_create();
+
     smpp_server->default_max_open_acks = SMPP_ESME_DEFAULT_MAX_OPEN_ACKS;
     smpp_server->wait_ack_action = SMPP_WAITACK_DISCONNECT;
 
@@ -135,10 +363,16 @@ void smpp_server_destroy(SMPPServer *smpp_server) {
     octstr_destroy(smpp_server->auth_url);
     gw_rwlock_destroy(smpp_server->ip_blocklist_lock);
     octstr_destroy(smpp_server->ip_blocklist_exempt_ips);
-    
+
+    gw_rwlock_wrlock(smpp_server->access_log_lock);
+    smpp_server_access_log_do_close(smpp_server);
+    gw_rwlock_unlock(smpp_server->access_log_lock);
+    octstr_destroy(smpp_server->access_log_format);
+    gw_rwlock_destroy(smpp_server->access_log_lock);
+
     cfg_destroy(smpp_server->running_configuration);
-    
-    
+
+
     gw_free(smpp_server);
 }
 
@@ -183,6 +417,32 @@ int smpp_server_reconfigure(SMPPServer *smpp_server) {
                     info(0, "Starting to log to file %s level %ld", octstr_get_cstr(logfile), tmp);
                     log_open(octstr_get_cstr(logfile), tmp, GW_NON_EXCL);
                     octstr_destroy(logfile);
+                }
+
+                Octstr *access_logfile = cfg_get(grp, octstr_imm("access-log"));
+                if (access_logfile == NULL) {
+                    access_logfile = cfg_get(grp, octstr_imm("access-log-file"));
+                    if (access_logfile) {
+                        warning(0, "'access-log-file' is deprecated; use 'access-log' instead.");
+                    }
+                }
+
+                if (access_logfile != NULL) {
+                    smpp_server_access_log_open(smpp_server, access_logfile);
+                    octstr_destroy(access_logfile);
+                } else if (smpp_server->access_logfile != NULL) {
+                    gw_rwlock_wrlock(smpp_server->access_log_lock);
+                    smpp_server_access_log_do_close(smpp_server);
+                    gw_rwlock_unlock(smpp_server->access_log_lock);
+                }
+
+                Octstr *access_log_format = cfg_get(grp, octstr_imm("access-log-format"));
+                if (access_log_format != NULL) {
+                    gw_rwlock_wrlock(smpp_server->access_log_lock);
+                    octstr_destroy(smpp_server->access_log_format);
+                    smpp_server->access_log_format = octstr_duplicate(access_log_format);
+                    gw_rwlock_unlock(smpp_server->access_log_lock);
+                    octstr_destroy(access_log_format);
                 }
 
                 if(cfg_get_integer(&smpp_server->smpp_port, grp, octstr_imm("smpp-port")) == -1) {

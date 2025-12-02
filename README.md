@@ -83,6 +83,17 @@ If the above goes well (you will only need to bootstrap once)
 
 You can now run using ./smpp/ksmppd.
 
+### Running tests
+
+To run the autotools-driven test targets you will need the usual build tooling (automake/aclocal, autoconf, libtool) available in your `PATH`.
+Once those dependencies are installed you can generate the build system, configure it, and execute the checks:
+
+    ./bootstrap.sh
+    ./configure
+    make check
+
+If any of the tools above are missing (for example, `aclocal` from automake), the bootstrap step will fail and you will need to install the missing package before continuing.
+
 ## Using KSMPPD
 
 I have created a number of example configurations in this repository located under examples/configurations

@@ -76,6 +76,37 @@
 #include "smpp_database.h"
 #include "smpp_route.h"
 
+static void smpp_bearerbox_access_log(SMPPServer *smpp_server, const char *event, SMPPBearerbox *smpp_bearerbox)
+{
+    Octstr *timestamp;
+    Octstr *line;
+    SMPPAccessLogInfo info;
+    Octstr *event_label;
+
+    if (smpp_server == NULL || smpp_bearerbox == NULL) {
+        return;
+    }
+
+    timestamp = smpp_server_access_log_timestamp();
+    memset(&info, 0, sizeof(info));
+    info.flag_mclass = info.flag_mwi = info.flag_coding = info.flag_compress = info.flag_validity = -1;
+    info.status = -1;
+    info.message_length = 0;
+    info.pdu_type = octstr_imm("bearerbox");
+    info.bearerbox_id = smpp_bearerbox->id;
+    info.ip = smpp_bearerbox->host;
+    info.meta_data = octstr_imm("bearerbox");
+
+    event_label = octstr_create(event);
+    info.event = event_label;
+
+    line = smpp_server_access_log_format_line(smpp_server, timestamp, &info);
+    smpp_server_access_log_entry(smpp_server, line);
+    octstr_destroy(line);
+    octstr_destroy(event_label);
+    octstr_destroy(timestamp);
+}
+
 sig_atomic_t smpp_bearerbox_get_state(SMPPBearerbox *smpp_bearerbox) {
     sig_atomic_t result;
     gw_rwlock_rdlock(smpp_bearerbox->lock);
@@ -389,6 +420,7 @@ void smpp_bearerbox_outbound_thread(void *arg) {
                     dict_remove(smpp_bearerbox->open_acks, smpp_bearerbox_msg->id); /* We don't want this being cleaned up as it will be requeued */
                     error(0, "Error writing message to bearerbox, disconnecting");
                     smpp_bearerbox->alive = 0;
+                    smpp_bearerbox_access_log(smpp_bearerbox->smpp_bearerbox_state->smpp_server, "bearerbox_disconnect", smpp_bearerbox);
                     requeue = 1;
                 } else {
                     /* Nothing else to do, it will get ack'd/nack'd and the reader thread will deal with clean up */
@@ -464,6 +496,7 @@ void smpp_bearerbox_inbound_thread(void *arg) {
                     info(0, "Successfully connected and identified.");
                     /* Already have a write lock */
                     smpp_bearerbox->alive = 1;
+                    smpp_bearerbox_access_log(smpp_bearerbox->smpp_bearerbox_state->smpp_server, "bearerbox_connect", smpp_bearerbox);
                 } else {
                     error(0, "Could not identify ourselves to bearerbox connection");
                 }
@@ -623,6 +656,7 @@ void smpp_bearerbox_inbound_thread(void *arg) {
         smpp_bearerbox_set_state(smpp_bearerbox, 0);
 
         error(0, "Connection to bearerbox broke!");
+        smpp_bearerbox_access_log(smpp_bearerbox->smpp_bearerbox_state->smpp_server, "bearerbox_disconnect", smpp_bearerbox);
     }
 
     info(0, "Shutting down bearerbox reader thread");
