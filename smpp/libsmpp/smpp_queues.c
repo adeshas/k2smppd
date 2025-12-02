@@ -732,6 +732,7 @@ void smpp_queues_handle_enquire_link(SMPPQueuedPDU *smpp_queued_pdu) {
             smpp_queued_response_pdu = smpp_queued_pdu_create();
             smpp_queued_response_pdu->smpp_esme = smpp_queued_pdu->smpp_esme;
             smpp_queued_response_pdu->pdu = smpp_pdu_create(enquire_link_resp, smpp_queued_pdu->pdu->u.enquire_link.sequence_number);
+            smpp_queues_access_log_basic(smpp_queued_response_pdu, "enquire_link_resp", "outbound", SMPP_ESME_ROK);
             smpp_queues_add_outbound(smpp_queued_response_pdu);
             break;
     }
@@ -902,6 +903,7 @@ void smpp_queues_inbound_thread(void *arg) {
                 smpp_queues_handle_bind_pdu(smpp_queued_pdu);
                 break;
             case enquire_link:
+                smpp_queues_access_log_basic(smpp_queued_pdu, smpp_queued_pdu->pdu->type_name, "inbound", -1);
                 smpp_queues_handle_enquire_link(smpp_queued_pdu);
                 break;
             case unbind:
