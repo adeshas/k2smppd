@@ -61,6 +61,7 @@
  */ 
 
 #include "gwlib/gwlib.h"
+#include <sys/time.h>
 #include "gw/smsc/smpp_pdu.h"
 #include "gw/load.h"
 #include "gw/msg.h"
@@ -75,6 +76,138 @@
 #include "smpp_bearerbox.h"
 #include "smpp_pdu_util.h"
 #include "smpp_route.h"
+
+static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const char *event, const char *direction, Octstr *from, Octstr *to, long msg_len, Octstr *msgdata, long status, double response_time)
+{
+    SMPPServer *smpp_server;
+    Octstr *timestamp;
+    Octstr *line;
+    SMPPAccessLogInfo info;
+    Octstr *event_label;
+    Octstr *direction_label;
+
+    if (smpp_queued_pdu == NULL || smpp_queued_pdu->pdu == NULL) {
+        return;
+    }
+
+    smpp_server = smpp_queued_pdu->smpp_esme ? smpp_queued_pdu->smpp_esme->smpp_server : NULL;
+    if (smpp_server == NULL) {
+        return;
+    }
+
+    timestamp = smpp_server_access_log_timestamp();
+    memset(&info, 0, sizeof(info));
+    info.flag_mclass = info.flag_mwi = info.flag_coding = info.flag_compress = info.flag_validity = -1;
+    info.message_length = msg_len;
+    info.status = status;
+    info.srt = response_time;
+    info.message = msgdata;
+    info.from = from;
+    info.to = to;
+    info.pdu_type = smpp_queued_pdu->pdu->type_name ? octstr_imm(smpp_queued_pdu->pdu->type_name) : NULL;
+    info.system_id = smpp_queued_pdu->smpp_esme->system_id;
+    info.ip = smpp_queued_pdu->smpp_esme->ip;
+    info.service_type = NULL;
+    info.account = smpp_queued_pdu->smpp_esme->system_type;
+    info.bearerbox_id = smpp_queued_pdu->bearerbox_id;
+    info.foreign_id = smpp_queued_pdu->id;
+    info.meta_data = octstr_imm(direction);
+
+    switch (smpp_queued_pdu->pdu->type) {
+        case deliver_sm:
+            info.flag_mclass = smpp_queued_pdu->pdu->u.deliver_sm.esm_class;
+            info.flag_coding = smpp_queued_pdu->pdu->u.deliver_sm.data_coding;
+            break;
+        case submit_sm:
+            info.service_type = smpp_queued_pdu->pdu->u.submit_sm.service_type;
+            info.flag_mclass = smpp_queued_pdu->pdu->u.submit_sm.esm_class;
+            info.flag_coding = smpp_queued_pdu->pdu->u.submit_sm.data_coding;
+            info.flag_validity = smpp_queued_pdu->pdu->u.submit_sm.validity_period ? 1 : -1;
+            break;
+        case submit_sm_resp:
+            info.foreign_id = smpp_queued_pdu->pdu->u.submit_sm_resp.message_id ? smpp_queued_pdu->pdu->u.submit_sm_resp.message_id : info.foreign_id;
+            break;
+        default:
+            break;
+    }
+
+    event_label = octstr_create(event);
+    direction_label = octstr_create(direction);
+    info.event = event_label;
+    info.direction = direction_label;
+
+    line = smpp_server_access_log_format_line(smpp_server, timestamp, &info);
+    smpp_server_access_log_entry(smpp_server, line);
+
+    octstr_destroy(line);
+    octstr_destroy(event_label);
+    octstr_destroy(direction_label);
+    octstr_destroy(timestamp);
+    octstr_destroy(from);
+    octstr_destroy(to);
+    octstr_destroy(msgdata);
+}
+
+static void smpp_queues_access_log_deliver(SMPPQueuedPDU *smpp_queued_pdu, const char *event, const char *direction, long status, double response_time)
+{
+    Octstr *from = NULL;
+    Octstr *to = NULL;
+    Octstr *msgdata = NULL;
+    long msg_len = 0;
+
+    if (smpp_queued_pdu == NULL || smpp_queued_pdu->pdu == NULL || smpp_queued_pdu->pdu->type != deliver_sm) {
+        return;
+    }
+
+    from = smpp_queued_pdu->pdu->u.deliver_sm.source_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.deliver_sm.source_addr) : NULL;
+    to = smpp_queued_pdu->pdu->u.deliver_sm.destination_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.deliver_sm.destination_addr) : NULL;
+    msgdata = smpp_queued_pdu->pdu->u.deliver_sm.short_message ? octstr_duplicate(smpp_queued_pdu->pdu->u.deliver_sm.short_message) : NULL;
+    msg_len = smpp_queued_pdu->pdu->u.deliver_sm.short_message ? octstr_len(smpp_queued_pdu->pdu->u.deliver_sm.short_message) : 0;
+
+    smpp_queues_access_log_entry(smpp_queued_pdu, event, direction, from, to, msg_len, msgdata, status, response_time);
+}
+
+static void smpp_queues_access_log_submit(SMPPQueuedPDU *smpp_queued_pdu, const char *event, const char *direction, long status)
+{
+    Octstr *from = NULL;
+    Octstr *to = NULL;
+    Octstr *msgdata = NULL;
+    long msg_len = 0;
+
+    if (smpp_queued_pdu == NULL || smpp_queued_pdu->pdu == NULL) {
+        return;
+    }
+
+    switch (smpp_queued_pdu->pdu->type) {
+        case submit_sm:
+            from = smpp_queued_pdu->pdu->u.submit_sm.source_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.source_addr) : NULL;
+            to = smpp_queued_pdu->pdu->u.submit_sm.destination_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.destination_addr) : NULL;
+            msgdata = smpp_queued_pdu->pdu->u.submit_sm.short_message ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.short_message) : NULL;
+            msg_len = smpp_queued_pdu->pdu->u.submit_sm.short_message ? octstr_len(smpp_queued_pdu->pdu->u.submit_sm.short_message) : 0;
+            break;
+        case submit_sm_resp:
+            msgdata = smpp_queued_pdu->pdu->u.submit_sm_resp.message_id ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm_resp.message_id) : NULL;
+            msg_len = msgdata ? octstr_len(msgdata) : 0;
+            break;
+        default:
+            break;
+    }
+
+    smpp_queues_access_log_entry(smpp_queued_pdu, event, direction, from, to, msg_len, msgdata, status, 0);
+}
+
+static void smpp_queues_access_log_basic(SMPPQueuedPDU *smpp_queued_pdu, const char *event, const char *direction, long status)
+{
+    smpp_queues_access_log_entry(smpp_queued_pdu, event, direction, NULL, NULL, 0, NULL, status, 0);
+}
+
+static void smpp_queues_submit_resp_log_and_send(SMPPQueuedPDU *smpp_queued_response_pdu)
+{
+    if (smpp_queued_response_pdu && smpp_queued_response_pdu->pdu && smpp_queued_response_pdu->pdu->type == submit_sm_resp) {
+        smpp_queues_access_log_submit(smpp_queued_response_pdu, "submit_sm_resp", "outbound", smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status);
+    }
+    smpp_queues_add_outbound(smpp_queued_response_pdu);
+}
 
 int smpp_queues_add_outbound(SMPPQueuedPDU *smpp_queued_pdu) {
     if(smpp_queued_pdu->callback) {
@@ -144,6 +277,16 @@ void smpp_queues_callback_deliver_sm_resp(void *context, long status) {
     SMPPQueuedPDU *smpp_queued_pdu = context;
     int destroy = 1;
     debug("smpp.queues.callback.deliver.sm.resp", 0, "SMPP[%s] Got deliver_sm callback status %ld %p", octstr_get_cstr(smpp_queued_pdu->system_id), status, smpp_queued_pdu);
+
+    if (smpp_queued_pdu->pdu && smpp_queued_pdu->pdu->type == deliver_sm) {
+        double response_time = 0.0;
+
+        if (smpp_queued_pdu->time_sent > 0) {
+            response_time = difftime(time(NULL), smpp_queued_pdu->time_sent);
+        }
+
+        smpp_queues_access_log_deliver(smpp_queued_pdu, "deliver_sm_resp", "inbound", status, response_time);
+    }
     if(status == SMPP_ESME_ROK) {
         if(smpp_queued_pdu->pdu && (smpp_queued_pdu->pdu->type == deliver_sm)) {
             if(smpp_queued_pdu->pdu->u.deliver_sm.esm_class & (0x04|0x08|0x20)) {
@@ -209,11 +352,13 @@ void smpp_queues_callback_submit_sm(void *context, int status) {
         octstr_destroy(smpp_queued_response_pdu->pdu->u.submit_sm_resp.message_id);
         smpp_queued_response_pdu->pdu->u.submit_sm_resp.message_id = NULL;
         smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = status;
+        smpp_queues_access_log_submit(smpp_queued_response_pdu, "submit_sm_resp", "outbound", smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status);
         smpp_queues_add_outbound(smpp_queued_response_pdu);
     } else {
         counter_increase(smpp_queued_response_pdu->smpp_esme->mt_counter);
         counter_increase(smpp_queued_response_pdu->smpp_esme->smpp_esme_global->mt_counter);
         smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = status;
+        smpp_queues_access_log_submit(smpp_queued_response_pdu, "submit_sm_resp", "outbound", smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status);
         smpp_queues_add_outbound(smpp_queued_response_pdu);
     }
 }
@@ -367,7 +512,7 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
     if(!(smpp_esme->bind_type & SMPP_ESME_TRANSMIT)) {
         smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, submit_sm_resp, smpp_queued_pdu->pdu->u.submit_sm.sequence_number);
         smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = SMPP_ESME_RINVBNDSTS;
-        smpp_queues_add_outbound(smpp_queued_response_pdu);
+        smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         smpp_queued_pdu_destroy(smpp_queued_pdu);
         return;
     }
@@ -378,7 +523,7 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
         error(0, "SMPP[%s] Exceeded throughput %f, %f, throttling.", octstr_get_cstr(smpp_esme->system_id), current_load, smpp_esme->smpp_esme_global->throughput);
         smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, submit_sm_resp, smpp_queued_pdu->pdu->u.submit_sm.sequence_number);
         smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = SMPP_ESME_RTHROTTLED;
-        smpp_queues_add_outbound(smpp_queued_response_pdu);
+        smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         smpp_queued_pdu_destroy(smpp_queued_pdu);
         return;
     } else {
@@ -406,20 +551,20 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
             counter_increase(smpp_queued_response_pdu->smpp_esme->smpp_esme_global->error_counter);
             debug("smpp.queues.handle.submit.sm", 0, "SMPP[%s:%ld] Simulating temporary failure", octstr_get_cstr(smpp_esme->system_id), smpp_esme->id);
             smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = SMPP_ESME_RMSGQFUL;
-            smpp_queues_add_outbound(smpp_queued_response_pdu);
+            smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         } else if (smpp_esme->simulate_permanent_failure_every && ((simulation_count % smpp_esme->simulate_permanent_failure_every) == 0)) {
             counter_increase(smpp_queued_response_pdu->smpp_esme->error_counter);
             counter_increase(smpp_queued_response_pdu->smpp_esme->smpp_esme_global->error_counter);
             debug("smpp.queues.handle.submit.sm", 0, "SMPP[%s:%ld] Simulating permanent failure", octstr_get_cstr(smpp_esme->system_id), smpp_esme->id);
             smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = SMPP_ESME_RSUBMITFAIL;
-            smpp_queues_add_outbound(smpp_queued_response_pdu);
+            smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         } else {
             msg = smpp_submit_sm_to_msg(smpp_queued_pdu->smpp_esme, smpp_queued_pdu->pdu, &error_reason);
             
             if(msg == NULL) {
                 smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = error_reason;
                 error(0, "Error converting to PDU %ld", error_reason);
-                smpp_queues_add_outbound(smpp_queued_response_pdu);
+                smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
             } else {
                 counter_increase(smpp_queued_response_pdu->smpp_esme->mt_counter);
                 counter_increase(smpp_queued_response_pdu->smpp_esme->smpp_esme_global->mt_counter);
@@ -435,7 +580,7 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
                     
                     debug("smpp.queues.handle.submit_sm", 0, "Built DLR-URL %s", octstr_get_cstr(msg->sms.dlr_url));
                     
-                    smpp_queues_add_outbound(smpp_queued_response_pdu);
+                    smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
                     response_sent = 1;
                     
                     queued_outbound_pdus = smpp_pdu_msg_to_pdu(smpp_esme, msg);
@@ -470,7 +615,7 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
                 
                 
                 if(!response_sent) {
-                    smpp_queues_add_outbound(smpp_queued_response_pdu);
+                    smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
                 }
                    
             }
@@ -490,7 +635,7 @@ void smpp_queues_handle_submit_sm(SMPPQueuedPDU *smpp_queued_pdu) {
             smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, submit_sm_resp, smpp_queued_pdu->pdu->u.submit_sm.sequence_number);
             error(0, "SMPP[%s] Couldn't generate message from PDU, rejecting %ld", octstr_get_cstr(smpp_queued_pdu->smpp_esme->system_id), error_reason);
             smpp_queued_response_pdu->pdu->u.submit_sm_resp.command_status = error_reason;
-            smpp_queues_add_outbound(smpp_queued_response_pdu);
+            smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         } else {
             if (octstr_len(smpp_esme->default_smsc)) {
                 octstr_destroy(msg->sms.smsc_id);
@@ -520,7 +665,7 @@ void smpp_queues_handle_data_sm(SMPPQueuedPDU *smpp_queued_pdu) {
     if (!(smpp_esme->bind_type & SMPP_ESME_TRANSMIT)) {
         smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, data_sm_resp, smpp_queued_pdu->pdu->u.data_sm.sequence_number);
         smpp_queued_response_pdu->pdu->u.data_sm_resp.command_status = SMPP_ESME_RINVBNDSTS;
-        smpp_queues_add_outbound(smpp_queued_response_pdu);
+        smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         smpp_queued_pdu_destroy(smpp_queued_pdu);
         return;
     }
@@ -531,7 +676,7 @@ void smpp_queues_handle_data_sm(SMPPQueuedPDU *smpp_queued_pdu) {
         error(0, "SMPP[%s] Exceeded throughput %f, %f, throttling.", octstr_get_cstr(smpp_esme->system_id), current_load, smpp_esme->smpp_esme_global->throughput);
         smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, data_sm_resp, smpp_queued_pdu->pdu->u.data_sm.sequence_number);
         smpp_queued_response_pdu->pdu->u.data_sm_resp.command_status = SMPP_ESME_RTHROTTLED;
-        smpp_queues_add_outbound(smpp_queued_response_pdu);
+        smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
         smpp_queued_pdu_destroy(smpp_queued_pdu);
         return;
     } else {
@@ -552,7 +697,7 @@ void smpp_queues_handle_data_sm(SMPPQueuedPDU *smpp_queued_pdu) {
         smpp_queued_response_pdu = smpp_queued_pdu_create_quick(smpp_esme, data_sm_resp, smpp_queued_pdu->pdu->u.data_sm.sequence_number);
         error(0, "SMPP[%s] Couldn't generate message from PDU, rejecting %ld", octstr_get_cstr(smpp_queued_pdu->smpp_esme->system_id), error_reason);
         smpp_queued_response_pdu->pdu->u.data_sm_resp.command_status = error_reason;
-        smpp_queues_add_outbound(smpp_queued_response_pdu);
+        smpp_queues_submit_resp_log_and_send(smpp_queued_response_pdu);
     } else {
         if (octstr_len(smpp_esme->default_smsc)) {
             octstr_destroy(msg->sms.smsc_id);
@@ -601,6 +746,7 @@ void smpp_queues_handle_unbind(SMPPQueuedPDU *smpp_queued_pdu) {
             smpp_queued_response_pdu->smpp_esme = smpp_queued_pdu->smpp_esme;
             smpp_queued_response_pdu->pdu = smpp_pdu_create(unbind_resp, smpp_queued_pdu->pdu->u.unbind.sequence_number);
             smpp_queued_response_pdu->disconnect = 1;
+            smpp_queues_access_log_basic(smpp_queued_response_pdu, "unbind_resp", "outbound", SMPP_ESME_ROK);
             smpp_queues_add_outbound(smpp_queued_response_pdu);
             break;
     }
@@ -630,7 +776,7 @@ void smpp_queues_handle_bind_pdu(SMPPQueuedPDU *smpp_queued_pdu) {
                 smpp_queued_response_pdu->pdu->u.bind_transmitter_resp.system_id = octstr_duplicate(smpp_queued_pdu->smpp_esme->smpp_server->server_id);
                 smpp_esme_global_add(smpp_queued_pdu->smpp_esme->smpp_server, smpp_queued_pdu->smpp_esme);
             }
-
+            smpp_queues_access_log_basic(smpp_queued_response_pdu, "bind_transmitter_resp", "outbound", smpp_queued_response_pdu->pdu->u.bind_transmitter_resp.command_status);
             smpp_queues_add_outbound(smpp_queued_response_pdu);
             break;
         case bind_transceiver:
@@ -651,7 +797,7 @@ void smpp_queues_handle_bind_pdu(SMPPQueuedPDU *smpp_queued_pdu) {
                 smpp_queued_response_pdu->pdu->u.bind_transceiver_resp.system_id = octstr_duplicate(smpp_queued_pdu->smpp_esme->smpp_server->server_id);
                 smpp_esme_global_add(smpp_queued_pdu->smpp_esme->smpp_server, smpp_queued_pdu->smpp_esme);
             }
-
+            smpp_queues_access_log_basic(smpp_queued_response_pdu, "bind_transceiver_resp", "outbound", smpp_queued_response_pdu->pdu->u.bind_transceiver_resp.command_status);
             smpp_queues_add_outbound(smpp_queued_response_pdu);
             break;
         case bind_receiver:
@@ -672,7 +818,7 @@ void smpp_queues_handle_bind_pdu(SMPPQueuedPDU *smpp_queued_pdu) {
                 smpp_queued_response_pdu->pdu->u.bind_receiver_resp.system_id = octstr_duplicate(smpp_queued_pdu->smpp_esme->smpp_server->server_id);
                 smpp_esme_global_add(smpp_queued_pdu->smpp_esme->smpp_server, smpp_queued_pdu->smpp_esme);
             }
-
+            smpp_queues_access_log_basic(smpp_queued_response_pdu, "bind_receiver_resp", "outbound", smpp_queued_response_pdu->pdu->u.bind_receiver_resp.command_status);
             smpp_queues_add_outbound(smpp_queued_response_pdu);
             break;
     }
@@ -752,15 +898,18 @@ void smpp_queues_inbound_thread(void *arg) {
             case bind_transmitter:
             case bind_transceiver:
             case bind_receiver:
+                smpp_queues_access_log_basic(smpp_queued_pdu, smpp_queued_pdu->pdu->type_name, "inbound", -1);
                 smpp_queues_handle_bind_pdu(smpp_queued_pdu);
                 break;
             case enquire_link:
                 smpp_queues_handle_enquire_link(smpp_queued_pdu);
                 break;
             case unbind:
+                smpp_queues_access_log_basic(smpp_queued_pdu, smpp_queued_pdu->pdu->type_name, "inbound", -1);
                 smpp_queues_handle_unbind(smpp_queued_pdu);
                 break;
             case submit_sm:
+                smpp_queues_access_log_submit(smpp_queued_pdu, "submit_sm", "inbound", -1);
                 smpp_queues_handle_submit_sm(smpp_queued_pdu);
                 break;
             case data_sm:
@@ -816,7 +965,11 @@ void smpp_queues_outbound_thread(void *arg) {
             if (disconnect) { /* Before we send this PDU, let's stop listening incase the other end disconnects first */
                 smpp_esme_stop_listening(smpp_esme);
             }
-            
+
+            if (smpp_queued_pdu->pdu->type == deliver_sm) {
+                smpp_queues_access_log_deliver(smpp_queued_pdu, "deliver_sm", "outbound", -1, 0);
+            }
+
             if(smpp_queued_pdu->callback) {
                 callback = 1;
                 smpp_queued_pdu->time_sent = time(NULL);
