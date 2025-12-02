@@ -83,12 +83,13 @@ libevent
 
 Now that you have the dependencies ready you can do the following.
 
-    git clone https://github.com/kneodev/ksmppd.git
+    git clone https://github.com/adeshas/k2smppd.git
     cd ksmppd
     ./bootstrap.sh
 
 If the above goes well (you will only need to bootstrap once)
 
+    CPPFLAGS="-I/usr/include/mysql" LDFLAGS="-L/usr/lib64/mysql" ./configure --prefix=/opt/k2smppd
     make
 
 You can now run using ./smpp/ksmppd.
