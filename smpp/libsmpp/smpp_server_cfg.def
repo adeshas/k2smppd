@@ -73,11 +73,13 @@
 #error MULTI_GROUP not defined.
 #endif
 
-SINGLE_GROUP(ksmppd,	
+SINGLE_GROUP(ksmppd,
     OCTSTR(id)
     OCTSTR(log-file)
     OCTSTR(log-level)
-        
+    OCTSTR(access-log)
+    OCTSTR(access-log-format)
+
     OCTSTR(smpp-port)
         
     OCTSTR(database-type)
