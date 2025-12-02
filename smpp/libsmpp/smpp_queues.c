@@ -62,6 +62,7 @@
 
 #include "gwlib/gwlib.h"
 #include <sys/time.h>
+#include <string.h>
 #include "gw/smsc/smpp_pdu.h"
 #include "gw/load.h"
 #include "gw/msg.h"
@@ -87,6 +88,10 @@ static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const c
     Octstr *direction_label;
 
     if (smpp_queued_pdu == NULL || smpp_queued_pdu->pdu == NULL) {
+        return;
+    }
+
+    if (event != NULL && (strcmp(event, "enquire_link") == 0 || strcmp(event, "enquire_link_resp") == 0)) {
         return;
     }
 
