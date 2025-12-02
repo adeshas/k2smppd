@@ -54,6 +54,8 @@ Thanks to [rajesh6115](https://github.com/rajesh6115) this build can now be comp
 
 You need to have kannel installed with MySQL support in order to compile successfully. If you don't have kannel installed, you can do so by executing the following commands.
 
+The ksmppd configure script now checks for the MySQL client development package (typically `libmysqlclient-dev` on Debian/Ubuntu or `mysql-devel` on RHEL/CentOS). Install it before configuring to avoid late link-time failures.
+
     svn co https://svn.kannel.org/gateway/trunk kannel-trunk
     cd kannel-trunk
     ./bootstrap.sh
