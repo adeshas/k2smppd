@@ -56,6 +56,14 @@ You need to have kannel installed with MySQL support in order to compile success
 
 The ksmppd configure script now checks for the MySQL client development package (typically `libmysqlclient-dev` on Debian/Ubuntu or `mysql-devel` on RHEL/CentOS). Install it before configuring to avoid late link-time failures.
 
+If you are unsure where the MySQL client headers and libraries are installed, try one of the following commands:
+
+* `mysql_config --libs --include` — prints the compiler and linker flags for the detected client installation (often `/usr/include/mysql` and `/usr/lib/x86_64-linux-gnu`).
+* `pkg-config --libs --cflags mysqlclient` — works on systems that ship a `mysqlclient.pc` file.
+* `rpm -ql mysql-devel | grep libmysqlclient` or `dpkg -L libmysqlclient-dev | grep libmysqlclient` — lists the files installed by the dev package on RPM/DPKG based systems.
+
+Once you know the location, ensure the include path and library directory are discoverable via your compiler flags or `LD_LIBRARY_PATH` when running `./configure`.
+
     svn co https://svn.kannel.org/gateway/trunk kannel-trunk
     cd kannel-trunk
     ./bootstrap.sh
@@ -75,12 +83,13 @@ libevent
 
 Now that you have the dependencies ready you can do the following.
 
-    git clone https://github.com/kneodev/ksmppd.git
+    git clone https://github.com/adeshas/k2smppd.git
     cd ksmppd
     ./bootstrap.sh
 
 If the above goes well (you will only need to bootstrap once)
 
+    CPPFLAGS="-I/usr/include/mysql" LDFLAGS="-L/usr/lib64/mysql" ./configure --prefix=/opt/k2smppd
     make
 
 You can now run using ./smpp/ksmppd.
