@@ -94,6 +94,19 @@ If the above goes well (you will only need to bootstrap once)
 
 You can now run using ./smpp/ksmppd.
 
+### Access logging
+
+Set `access-log` and optionally `access-log-format` in the `group = ksmppd`
+configuration. Message and UDH formatting follows Kannel's access log:
+
+* `%b` logs text with non-printable bytes (including carriage returns and
+  newlines) replaced by `.`. Binary and UCS-2 messages are logged as
+  hexadecimal instead.
+* `%U` logs the UDH length in bytes, including the UDHL byte, and `%u` logs
+  the UDH bytes as hexadecimal.
+* When the SMPP UDHI flag is present, the UDH is removed from `%b` and
+  reported separately through `%U` and `%u`.
+
 ### Running tests
 
 To run the autotools-driven test targets you will need the usual build tooling (automake/aclocal, autoconf, libtool) available in your `PATH`.
@@ -188,7 +201,6 @@ All scenarios will allow ESME's to authenticate as normal, unless the database i
 #### System restart
 * The system first starts, connects to bearerbox and allows connections from ESMEs. Once started it begins reprocessing bearerbox queues if any.
 * Once ESME's reconnect - their queued messages (in database) will begin being reprocessed.
-
 
 
 
