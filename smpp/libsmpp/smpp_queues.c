@@ -78,6 +78,34 @@
 #include "smpp_pdu_util.h"
 #include "smpp_route.h"
 
+static void smpp_queues_access_log_extract_udh(SMPPAccessLogInfo *info, int udhi)
+{
+    long udh_length;
+    long message_length;
+
+    if (info == NULL || info->message == NULL) {
+        return;
+    }
+
+    message_length = octstr_len(info->message);
+    info->message_length = message_length;
+
+    if (!udhi || message_length == 0) {
+        return;
+    }
+
+    /* The first UDH byte is UDHL; include that byte in the logged length. */
+    udh_length = octstr_get_char(info->message, 0) + 1;
+    if (udh_length <= 0 || udh_length > message_length) {
+        return;
+    }
+
+    info->udh_data = octstr_copy(info->message, 0, udh_length);
+    info->udh_length = udh_length;
+    octstr_delete(info->message, 0, udh_length);
+    info->message_length = octstr_len(info->message);
+}
+
 static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const char *event, const char *direction, Octstr *from, Octstr *to, long msg_len, Octstr *msgdata, long status, double response_time)
 {
     SMPPServer *smpp_server;
@@ -86,6 +114,7 @@ static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const c
     SMPPAccessLogInfo info;
     Octstr *event_label;
     Octstr *direction_label;
+    int udhi = 0;
 
     if (smpp_queued_pdu == NULL || smpp_queued_pdu->pdu == NULL) {
         return;
@@ -122,12 +151,14 @@ static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const c
         case deliver_sm:
             info.flag_mclass = smpp_queued_pdu->pdu->u.deliver_sm.esm_class;
             info.flag_coding = smpp_queued_pdu->pdu->u.deliver_sm.data_coding;
+            udhi = (smpp_queued_pdu->pdu->u.deliver_sm.esm_class & ESM_CLASS_DELIVER_UDH_INDICATOR) != 0;
             break;
         case submit_sm:
             info.service_type = smpp_queued_pdu->pdu->u.submit_sm.service_type;
             info.flag_mclass = smpp_queued_pdu->pdu->u.submit_sm.esm_class;
             info.flag_coding = smpp_queued_pdu->pdu->u.submit_sm.data_coding;
             info.flag_validity = smpp_queued_pdu->pdu->u.submit_sm.validity_period ? 1 : -1;
+            udhi = (smpp_queued_pdu->pdu->u.submit_sm.esm_class & ESM_CLASS_SUBMIT_UDH_INDICATOR) != 0;
             break;
         case submit_sm_resp:
             info.foreign_id = smpp_queued_pdu->pdu->u.submit_sm_resp.message_id ? smpp_queued_pdu->pdu->u.submit_sm_resp.message_id : info.foreign_id;
@@ -135,6 +166,8 @@ static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const c
         default:
             break;
     }
+
+    smpp_queues_access_log_extract_udh(&info, udhi);
 
     event_label = octstr_create(event);
     direction_label = octstr_create(direction);
@@ -148,6 +181,7 @@ static void smpp_queues_access_log_entry(SMPPQueuedPDU *smpp_queued_pdu, const c
     octstr_destroy(event_label);
     octstr_destroy(direction_label);
     octstr_destroy(timestamp);
+    octstr_destroy(info.udh_data);
     octstr_destroy(from);
     octstr_destroy(to);
     octstr_destroy(msgdata);
@@ -187,8 +221,12 @@ static void smpp_queues_access_log_submit(SMPPQueuedPDU *smpp_queued_pdu, const 
         case submit_sm:
             from = smpp_queued_pdu->pdu->u.submit_sm.source_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.source_addr) : NULL;
             to = smpp_queued_pdu->pdu->u.submit_sm.destination_addr ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.destination_addr) : NULL;
-            msgdata = smpp_queued_pdu->pdu->u.submit_sm.short_message ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.short_message) : NULL;
-            msg_len = smpp_queued_pdu->pdu->u.submit_sm.short_message ? octstr_len(smpp_queued_pdu->pdu->u.submit_sm.short_message) : 0;
+            if (smpp_queued_pdu->pdu->u.submit_sm.sm_length == 0 && smpp_queued_pdu->pdu->u.submit_sm.message_payload) {
+                msgdata = octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.message_payload);
+            } else {
+                msgdata = smpp_queued_pdu->pdu->u.submit_sm.short_message ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm.short_message) : NULL;
+            }
+            msg_len = msgdata ? octstr_len(msgdata) : 0;
             break;
         case submit_sm_resp:
             msgdata = smpp_queued_pdu->pdu->u.submit_sm_resp.message_id ? octstr_duplicate(smpp_queued_pdu->pdu->u.submit_sm_resp.message_id) : NULL;
@@ -1204,4 +1242,3 @@ void smpp_queues_shutdown(SMPPServer *smpp_server) {
     gw_prioqueue_destroy(smpp_server->outbound_queue, NULL);
     gw_prioqueue_destroy(smpp_server->simulation_queue, (void(*)(void *))smpp_queued_pdu_destroy);
 }
-
