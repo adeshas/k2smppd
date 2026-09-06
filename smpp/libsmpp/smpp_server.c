@@ -159,16 +159,83 @@ static void smpp_server_access_log_append_double(Octstr *line, double value)
     octstr_destroy(tmp);
 }
 
+/*
+ * Match Kannel's access-log representation of message data. Text messages
+ * have non-printable bytes replaced with '.', while binary and UCS-2
+ * messages are rendered as hexadecimal so they cannot corrupt a log line.
+ */
+static int smpp_server_access_log_binary_coding(long data_coding)
+{
+    if (data_coding < 0) {
+        return 0;
+    }
+
+    if (data_coding == 0x02) {
+        return 1;
+    }
+
+    if ((data_coding & 0xF0) == 0xF0) {
+        return (data_coding & 0x04) != 0;
+    }
+
+    if ((data_coding & 0xC0) == 0x00) {
+        long coding = (data_coding & 0x0C) >> 2;
+        return coding == DC_8BIT || coding == DC_UCS2;
+    }
+
+    if ((data_coding & 0xC0) == 0xC0) {
+        return (data_coding & 0x30) == 0x30;
+    }
+
+    return 0;
+}
+
+static Octstr *smpp_server_access_log_message(Octstr *message, long data_coding)
+{
+    Octstr *result;
+
+    if (message == NULL) {
+        return NULL;
+    }
+
+    result = octstr_duplicate(message);
+    if (smpp_server_access_log_binary_coding(data_coding)) {
+        octstr_binary_to_hex(result, 1);
+    } else {
+        octstr_convert_printable(result);
+    }
+
+    return result;
+}
+
+static Octstr *smpp_server_access_log_udh(Octstr *udh_data)
+{
+    Octstr *result;
+
+    if (udh_data == NULL) {
+        return NULL;
+    }
+
+    result = octstr_duplicate(udh_data);
+    octstr_binary_to_hex(result, 1);
+    return result;
+}
+
 Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *timestamp, SMPPAccessLogInfo *info)
 {
     long i;
     long len;
     Octstr *line;
     Octstr *fmt;
+    Octstr *message;
+    Octstr *udh_data;
 
     if (smpp_server == NULL || timestamp == NULL || info == NULL) {
         return NULL;
     }
+
+    message = smpp_server_access_log_message(info->message, info->flag_coding);
+    udh_data = smpp_server_access_log_udh(info->udh_data);
 
     gw_rwlock_rdlock(smpp_server->access_log_lock);
     fmt = smpp_server->access_log_format ? smpp_server->access_log_format : octstr_imm(DEFAULT_ACCESS_LOG_FORMAT);
@@ -251,13 +318,13 @@ Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *time
                 smpp_server_access_log_append_num(line, info->message_length);
                 break;
             case 'b':
-                if (info->message) octstr_append(line, info->message);
+                if (message) octstr_append(line, message);
                 break;
             case 'U':
                 smpp_server_access_log_append_num(line, info->udh_length);
                 break;
             case 'u':
-                if (info->udh_data) octstr_append(line, info->udh_data);
+                if (udh_data) octstr_append(line, udh_data);
                 break;
             case 's':
                 if (info->status >= 0) smpp_server_access_log_append_num(line, info->status);
@@ -273,6 +340,8 @@ Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *time
     }
 
     gw_rwlock_unlock(smpp_server->access_log_lock);
+    octstr_destroy(message);
+    octstr_destroy(udh_data);
 
     return line;
 }
@@ -563,5 +632,3 @@ int smpp_server_reconfigure(SMPPServer *smpp_server) {
 
     return status;
 }
-
-
