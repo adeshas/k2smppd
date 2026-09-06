@@ -80,6 +80,10 @@
 #define SMPP_WAITACK_DISCONNECT 0
 #define SMPP_WAITACK_DROP 1
 
+#define SMPP_PDU_LOG_NONE 0
+#define SMPP_PDU_LOG_MESSAGES 1
+#define SMPP_PDU_LOG_ALL 2
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -155,6 +159,8 @@ extern "C" {
         FILE *access_log;
         RWLock *access_log_lock;
 
+        volatile sig_atomic_t pdu_log_mode;
+
         long default_max_open_acks;
 
         long wait_ack_action;
@@ -194,10 +200,12 @@ extern "C" {
     void smpp_server_access_log_entry(SMPPServer *smpp_server, Octstr *line);
     Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *timestamp, SMPPAccessLogInfo *info);
     Octstr *smpp_server_access_log_timestamp();
+    Octstr *smpp_server_loggable_message(Octstr *message, long data_coding);
+    int smpp_server_set_pdu_log_mode(SMPPServer *smpp_server, Octstr *mode);
+    const char *smpp_server_pdu_log_mode_name(SMPPServer *smpp_server);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* SMPP_SERVER_H */
-
