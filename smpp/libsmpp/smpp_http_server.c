@@ -162,6 +162,33 @@ SMPPHTTPCommandResult *smpp_http_command_log_level(SMPPServer *smpp_server, List
     return smpp_http_result;
 }
 
+SMPPHTTPCommandResult *smpp_http_command_pdu_log(SMPPServer *smpp_server, List *cgivars, int content_type) {
+    SMPPHTTPCommandResult *smpp_http_result = smpp_http_command_result_create();
+    Octstr *mode = http_cgi_variable(cgivars, "mode");
+
+    if (mode != NULL && octstr_len(mode) > 0) {
+        if (smpp_server_set_pdu_log_mode(smpp_server, mode) == -1) {
+            smpp_http_result->status = HTTP_BAD_REQUEST;
+            if (content_type == HTTP_CONTENT_TYPE_XML) {
+                smpp_http_result->result = octstr_format("<error>Invalid PDU log mode. Use none, messages, or all.</error>\n");
+            } else {
+                smpp_http_result->result = octstr_format("Invalid PDU log mode. Use none, messages, or all.\n");
+            }
+            return smpp_http_result;
+        }
+
+        info(0, "PDU logging mode changed at runtime to %s", smpp_server_pdu_log_mode_name(smpp_server));
+    }
+
+    if (content_type == HTTP_CONTENT_TYPE_XML) {
+        smpp_http_result->result = octstr_format("<pdu-log>%s</pdu-log>\n", smpp_server_pdu_log_mode_name(smpp_server));
+    } else {
+        smpp_http_result->result = octstr_format("PDU logging mode is %s\n", smpp_server_pdu_log_mode_name(smpp_server));
+    }
+
+    return smpp_http_result;
+}
+
 void smpp_http_server_request_handler(void *arg) {
     SMPPServer *smpp_server = arg;
     SMPPHTTPServer *smpp_http_server = smpp_server->http_server;
@@ -290,6 +317,7 @@ void smpp_http_server_init(SMPPServer *smpp_server) {
     
     smpp_http_server_add_command(smpp_server, octstr_imm("uptime"), smpp_http_command_uptime);
     smpp_http_server_add_command(smpp_server, octstr_imm("log-level"), smpp_http_command_log_level);
+    smpp_http_server_add_command(smpp_server, octstr_imm("pdu-log"), smpp_http_command_pdu_log);
     
     smpp_http_server->start_time = time(NULL);
         

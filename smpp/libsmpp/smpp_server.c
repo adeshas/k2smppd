@@ -78,6 +78,42 @@
 
 static const char *DEFAULT_ACCESS_LOG_FORMAT = "%t %l [SMSC:%i] [SVC:%n] [ACT:%A] [BINF:%B] [FID:%F] [META:%D] [from:%p] [to:%P] [flags:%m:%c:%M:%C:%d] [msg:%L:%b] [udh:%U:%u]";
 
+int smpp_server_set_pdu_log_mode(SMPPServer *smpp_server, Octstr *mode)
+{
+    if (smpp_server == NULL || mode == NULL) {
+        return -1;
+    }
+
+    if (octstr_case_compare(mode, octstr_imm("none")) == 0) {
+        smpp_server->pdu_log_mode = SMPP_PDU_LOG_NONE;
+    } else if (octstr_case_compare(mode, octstr_imm("messages")) == 0) {
+        smpp_server->pdu_log_mode = SMPP_PDU_LOG_MESSAGES;
+    } else if (octstr_case_compare(mode, octstr_imm("all")) == 0) {
+        smpp_server->pdu_log_mode = SMPP_PDU_LOG_ALL;
+    } else {
+        return -1;
+    }
+
+    return 0;
+}
+
+const char *smpp_server_pdu_log_mode_name(SMPPServer *smpp_server)
+{
+    if (smpp_server == NULL) {
+        return "none";
+    }
+
+    switch (smpp_server->pdu_log_mode) {
+        case SMPP_PDU_LOG_MESSAGES:
+            return "messages";
+        case SMPP_PDU_LOG_ALL:
+            return "all";
+        case SMPP_PDU_LOG_NONE:
+        default:
+            return "none";
+    }
+}
+
 static void smpp_server_access_log_do_close(SMPPServer *smpp_server)
 {
     if (smpp_server == NULL) {
@@ -190,7 +226,7 @@ static int smpp_server_access_log_binary_coding(long data_coding)
     return 0;
 }
 
-static Octstr *smpp_server_access_log_message(Octstr *message, long data_coding)
+Octstr *smpp_server_loggable_message(Octstr *message, long data_coding)
 {
     Octstr *result;
 
@@ -234,7 +270,7 @@ Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *time
         return NULL;
     }
 
-    message = smpp_server_access_log_message(info->message, info->flag_coding);
+    message = smpp_server_loggable_message(info->message, info->flag_coding);
     udh_data = smpp_server_access_log_udh(info->udh_data);
 
     gw_rwlock_rdlock(smpp_server->access_log_lock);
@@ -398,6 +434,7 @@ SMPPServer *smpp_server_create() {
     smpp_server->access_log_format = octstr_create(DEFAULT_ACCESS_LOG_FORMAT);
     smpp_server->access_log = NULL;
     smpp_server->access_log_lock = gw_rwlock_create();
+    smpp_server->pdu_log_mode = SMPP_PDU_LOG_NONE;
 
     smpp_server->default_max_open_acks = SMPP_ESME_DEFAULT_MAX_OPEN_ACKS;
     smpp_server->wait_ack_action = SMPP_WAITACK_DISCONNECT;
@@ -508,6 +545,16 @@ int smpp_server_reconfigure(SMPPServer *smpp_server) {
                     gw_rwlock_unlock(smpp_server->access_log_lock);
                     octstr_destroy(access_log_format);
                 }
+
+                Octstr *pdu_log_mode = cfg_get(grp, octstr_imm("pdu-log"));
+                if (pdu_log_mode != NULL) {
+                    if (smpp_server_set_pdu_log_mode(smpp_server, pdu_log_mode) == -1) {
+                        warning(0, "Invalid pdu-log mode '%s'; using 'none'", octstr_get_cstr(pdu_log_mode));
+                        smpp_server->pdu_log_mode = SMPP_PDU_LOG_NONE;
+                    }
+                    octstr_destroy(pdu_log_mode);
+                }
+                info(0, "PDU logging mode is %s", smpp_server_pdu_log_mode_name(smpp_server));
 
                 if(cfg_get_integer(&smpp_server->smpp_port, grp, octstr_imm("smpp-port")) == -1) {
                     smpp_server->smpp_port = 2345;

@@ -106,7 +106,8 @@
     }
     smpp_blocked_ip->attempts++;
     smpp_blocked_ip->time_blocked = time(NULL);
-    debug("smpp.listener.auth.failed", 0, "IP address %s, attempts %ld have failed", octstr_get_cstr(ip), smpp_blocked_ip->attempts);
+    warning(0, "SMPP authentication failure from IP %s (attempt %ld/%ld)",
+            octstr_get_cstr(ip), smpp_blocked_ip->attempts, smpp_server->ip_blocklist_attempts);
     gw_rwlock_unlock(smpp_server->ip_blocklist_lock);
  }
 
@@ -254,11 +255,11 @@ static void smpp_listener_connection_callback(struct evconnlistener *listener, e
         ip = host_ip(*sin);
     }
 
-    debug("smpp.listener.connection.callback", 0, "Got connection from %s", octstr_get_cstr(ip));
+    info(0, "Incoming SMPP connection from %s", octstr_get_cstr(ip));
 
     if(octstr_len(ip)) {
         if(smpp_listener_ip_is_blocked(smpp_server, ip)) {
-            debug("smpp.listener.connection.callback", 0, "%s is temporarily banned from connecting. Rejecting.", octstr_get_cstr(ip));
+            warning(0, "Incoming SMPP connection from %s rejected: IP is temporarily blocked", octstr_get_cstr(ip));
             evutil_closesocket(fd);
             octstr_destroy(ip);
             return;
@@ -354,4 +355,3 @@ int smpp_listener_start(SMPPServer *smpp_server) {
     
     return 0;
 }
-
