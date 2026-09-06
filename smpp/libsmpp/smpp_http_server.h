@@ -87,6 +87,7 @@ extern "C" {
     
     SMPPHTTPCommandResult *smpp_http_command_result_create();
     SMPPHTTPCommand *smpp_http_server_command_create();
+    SMPPHTTPCommandResult *smpp_http_command_pdu_log(SMPPServer *smpp_server, List *cgivars, int content_type);
     void smpp_http_server_add_command(SMPPServer *smpp_server, Octstr *key, SMPPHTTPCommandResult *(*callback)(SMPPServer *smpp_server, List *cgivars, int content_type));
 
 #ifdef __cplusplus
@@ -94,4 +95,3 @@ extern "C" {
 #endif
 
 #endif /* SMPP_HTTP_SERVER_H */
-

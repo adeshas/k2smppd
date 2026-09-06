@@ -107,6 +107,42 @@ configuration. Message and UDH formatting follows Kannel's access log:
 * When the SMPP UDHI flag is present, the UDH is removed from `%b` and
   reported separately through `%U` and `%u`.
 
+### Operational and PDU logging
+
+Kannel-compatible log levels are `0` (debug), `1` (info), `2` (warning),
+`3` (error), and `4` (panic). For normal troubleshooting, use
+`log-level = 1`. Connection attempts, bind successes and failures,
+disconnects, and selected PDU summaries are operational messages; periodic
+load and queue statistics remain debug-only.
+
+`pdu-log` controls concise PDU summaries in the main log and defaults to
+`none`:
+
+* `none` disables PDU summaries.
+* `messages` logs `submit_sm`, `submit_sm_resp`, `deliver_sm`,
+  `deliver_sm_resp`, `data_sm`, and `data_sm_resp`, including log-safe
+  message payloads.
+* `all` additionally logs control PDUs such as binds, unbinds, and
+  enquire-link heartbeats. Bind passwords are never logged.
+
+The configured value is the startup default:
+
+    group = ksmppd
+    log-level = 1
+    pdu-log = none
+
+The mode can be inspected or changed immediately through the built-in HTTP
+server without restarting KSMPPD:
+
+    curl "http://localhost:14010/pdu-log?password=ksmppdpass"
+    curl "http://localhost:14010/pdu-log?password=ksmppdpass&mode=messages"
+    curl "http://localhost:14010/pdu-log?password=ksmppdpass&mode=all"
+    curl "http://localhost:14010/pdu-log?password=ksmppdpass&mode=none"
+
+Runtime changes last until the next restart. PDU summaries are emitted at
+info level, so they work with `log-level = 1` without enabling the database,
+queue, and heartbeat debug flood.
+
 ### Running tests
 
 To run the autotools-driven test targets you will need the usual build tooling (automake/aclocal, autoconf, libtool) available in your `PATH`.
@@ -201,8 +237,6 @@ All scenarios will allow ESME's to authenticate as normal, unless the database i
 #### System restart
 * The system first starts, connects to bearerbox and allows connections from ESMEs. Once started it begins reprocessing bearerbox queues if any.
 * Once ESME's reconnect - their queued messages (in database) will begin being reprocessed.
-
-
 
 
 

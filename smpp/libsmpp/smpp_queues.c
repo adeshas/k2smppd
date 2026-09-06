@@ -78,6 +78,125 @@
 #include "smpp_pdu_util.h"
 #include "smpp_route.h"
 
+static int smpp_queues_is_message_pdu(SMPP_PDU *pdu)
+{
+    if (pdu == NULL) {
+        return 0;
+    }
+
+    return pdu->type == submit_sm ||
+           pdu->type == submit_sm_resp ||
+           pdu->type == deliver_sm ||
+           pdu->type == deliver_sm_resp ||
+           pdu->type == data_sm ||
+           pdu->type == data_sm_resp;
+}
+
+static const char *smpp_queues_log_value(Octstr *value)
+{
+    return value ? octstr_get_cstr(value) : "";
+}
+
+static void smpp_queues_log_pdu(SMPPQueuedPDU *smpp_queued_pdu, const char *direction)
+{
+    SMPPServer *smpp_server;
+    SMPPEsme *smpp_esme;
+    SMPP_PDU *pdu;
+    Octstr *payload = NULL;
+    Octstr *loggable_payload = NULL;
+    long payload_length = 0;
+
+    if (smpp_queued_pdu == NULL || smpp_queued_pdu->smpp_esme == NULL || smpp_queued_pdu->pdu == NULL) {
+        return;
+    }
+
+    smpp_esme = smpp_queued_pdu->smpp_esme;
+    smpp_server = smpp_esme->smpp_server;
+    pdu = smpp_queued_pdu->pdu;
+
+    if (smpp_server == NULL || smpp_server->pdu_log_mode == SMPP_PDU_LOG_NONE) {
+        return;
+    }
+
+    if (smpp_server->pdu_log_mode == SMPP_PDU_LOG_MESSAGES && !smpp_queues_is_message_pdu(pdu)) {
+        return;
+    }
+
+    switch (pdu->type) {
+        case submit_sm:
+            if (pdu->u.submit_sm.sm_length == 0 && pdu->u.submit_sm.message_payload != NULL) {
+                payload = pdu->u.submit_sm.message_payload;
+            } else {
+                payload = pdu->u.submit_sm.short_message;
+            }
+            payload_length = payload ? octstr_len(payload) : 0;
+            loggable_payload = smpp_server_loggable_message(payload, pdu->u.submit_sm.data_coding);
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld from=%s to=%s coding=%ld payload=%ld:%s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.submit_sm.sequence_number,
+                    smpp_queues_log_value(pdu->u.submit_sm.source_addr),
+                    smpp_queues_log_value(pdu->u.submit_sm.destination_addr),
+                    pdu->u.submit_sm.data_coding, payload_length,
+                    smpp_queues_log_value(loggable_payload));
+            break;
+        case submit_sm_resp:
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld status=%ld message-id=%s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.submit_sm_resp.sequence_number,
+                    pdu->u.submit_sm_resp.command_status,
+                    smpp_queues_log_value(pdu->u.submit_sm_resp.message_id));
+            break;
+        case deliver_sm:
+            if (pdu->u.deliver_sm.sm_length == 0 && pdu->u.deliver_sm.message_payload != NULL) {
+                payload = pdu->u.deliver_sm.message_payload;
+            } else {
+                payload = pdu->u.deliver_sm.short_message;
+            }
+            payload_length = payload ? octstr_len(payload) : 0;
+            loggable_payload = smpp_server_loggable_message(payload, pdu->u.deliver_sm.data_coding);
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld from=%s to=%s coding=%ld payload=%ld:%s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.deliver_sm.sequence_number,
+                    smpp_queues_log_value(pdu->u.deliver_sm.source_addr),
+                    smpp_queues_log_value(pdu->u.deliver_sm.destination_addr),
+                    pdu->u.deliver_sm.data_coding, payload_length,
+                    smpp_queues_log_value(loggable_payload));
+            break;
+        case deliver_sm_resp:
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld status=%ld",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.deliver_sm_resp.sequence_number,
+                    pdu->u.deliver_sm_resp.command_status);
+            break;
+        case data_sm:
+            payload = pdu->u.data_sm.message_payload;
+            payload_length = payload ? octstr_len(payload) : 0;
+            loggable_payload = smpp_server_loggable_message(payload, pdu->u.data_sm.data_coding);
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld from=%s to=%s coding=%ld payload=%ld:%s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.data_sm.sequence_number,
+                    smpp_queues_log_value(pdu->u.data_sm.source_addr),
+                    smpp_queues_log_value(pdu->u.data_sm.destination_addr),
+                    pdu->u.data_sm.data_coding, payload_length,
+                    smpp_queues_log_value(loggable_payload));
+            break;
+        case data_sm_resp:
+            info(0, "SMPP[%s:%ld] PDU %s %s seq=%ld status=%ld message-id=%s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id, direction,
+                    pdu->type_name, pdu->u.data_sm_resp.sequence_number,
+                    pdu->u.data_sm_resp.command_status,
+                    smpp_queues_log_value(pdu->u.data_sm_resp.message_id));
+            break;
+        default:
+            info(0, "SMPP[%s:%ld] PDU %s %s",
+                    smpp_queues_log_value(smpp_esme->system_id), smpp_esme->id,
+                    direction, pdu->type_name);
+            break;
+    }
+
+    octstr_destroy(loggable_payload);
+}
+
 static void smpp_queues_access_log_extract_udh(SMPPAccessLogInfo *info, int udhi)
 {
     long udh_length;
@@ -279,7 +398,6 @@ int smpp_queues_send_pdu(Connection *conn, Octstr *id, SMPP_PDU *pdu) {
     Octstr *os;
     int ret;
 
-    smpp_pdu_dump(id, pdu);
     os = smpp_pdu_pack(id, pdu);
     if (os) {
         ret = conn_write(conn, os); /* Caller checks for write errors later */
@@ -791,6 +909,9 @@ void smpp_queues_handle_unbind(SMPPQueuedPDU *smpp_queued_pdu) {
     SMPPQueuedPDU *smpp_queued_response_pdu = NULL;
     switch (smpp_queued_pdu->pdu->type) {
         case unbind:
+            info(0, "SMPP[%s:%ld] unbind received; closing connection",
+                    smpp_queues_log_value(smpp_queued_pdu->smpp_esme->system_id),
+                    smpp_queued_pdu->smpp_esme->id);
             smpp_queued_response_pdu = smpp_queued_pdu_create();
             smpp_queued_response_pdu->smpp_esme = smpp_queued_pdu->smpp_esme;
             smpp_queued_response_pdu->pdu = smpp_pdu_create(unbind_resp, smpp_queued_pdu->pdu->u.unbind.sequence_number);
@@ -806,6 +927,25 @@ void smpp_queues_handle_bind_pdu(SMPPQueuedPDU *smpp_queued_pdu) {
     debug("smpp.queues.handle.bind.pdu", 0, "Handling bind PDU");
     SMPPESMEAuthResult *auth_result = NULL;
     SMPPQueuedPDU *smpp_queued_response_pdu = NULL;
+    Octstr *requested_system_id = NULL;
+
+    switch (smpp_queued_pdu->pdu->type) {
+        case bind_transmitter:
+            requested_system_id = smpp_queued_pdu->pdu->u.bind_transmitter.system_id;
+            break;
+        case bind_transceiver:
+            requested_system_id = smpp_queued_pdu->pdu->u.bind_transceiver.system_id;
+            break;
+        case bind_receiver:
+            requested_system_id = smpp_queued_pdu->pdu->u.bind_receiver.system_id;
+            break;
+    }
+
+    info(0, "SMPP bind attempt type=%s system-id=%s ip=%s",
+            smpp_queued_pdu->pdu->type_name,
+            smpp_queues_log_value(requested_system_id),
+            smpp_queues_log_value(smpp_queued_pdu->smpp_esme->ip));
+
     switch (smpp_queued_pdu->pdu->type) {
         case bind_transmitter:
             auth_result = smpp_esme_auth(smpp_queued_pdu->smpp_esme->smpp_server, smpp_queued_pdu->pdu->u.bind_transmitter.system_id, smpp_queued_pdu->pdu->u.bind_transmitter.password, smpp_queued_pdu->smpp_esme);
@@ -916,6 +1056,11 @@ void smpp_queues_handle_bind_pdu(SMPPQueuedPDU *smpp_queued_pdu) {
         if(smpp_queued_pdu->smpp_esme->smpp_esme_global->enable_prepaid_billing) {
             info(0, "SMPP[%s] has prepaid billing enabled.", octstr_get_cstr(smpp_queued_pdu->smpp_esme->smpp_esme_global->system_id));
         }
+    } else {
+        warning(0, "SMPP bind failed type=%s system-id=%s ip=%s",
+                smpp_queued_pdu->pdu->type_name,
+                smpp_queues_log_value(requested_system_id),
+                smpp_queues_log_value(smpp_queued_pdu->smpp_esme->ip));
     }
 
     smpp_queued_pdu_destroy(smpp_queued_pdu);
@@ -934,7 +1079,7 @@ void smpp_queues_inbound_thread(void *arg) {
 
     while ((smpp_queued_pdu = gw_prioqueue_consume(smpp_server->inbound_queue)) != NULL) {
         debug("smpp.queues.inbound.thread", 0, "SMPP[%s] Got queued PDU (%d):", octstr_get_cstr(smpp_queued_pdu->smpp_esme->system_id), smpp_queued_pdu->smpp_esme->connected);
-        smpp_pdu_dump(smpp_queued_pdu->smpp_esme->system_id, smpp_queued_pdu->pdu);
+        smpp_queues_log_pdu(smpp_queued_pdu, "inbound");
         smpp_queued_pdu->smpp_esme->time_last_pdu = time(NULL);
 
         smpp_queued_pdu->smpp_esme->time_last_queue_process = time(NULL);
@@ -1028,6 +1173,7 @@ void smpp_queues_outbound_thread(void *arg) {
                 callback = 0;
             }
 
+            smpp_queues_log_pdu(smpp_queued_pdu, "outbound");
             smpp_queues_send_pdu(smpp_queued_pdu->smpp_esme->conn, smpp_queued_pdu->smpp_esme->system_id, smpp_queued_pdu->pdu);
 
             if (disconnect) {

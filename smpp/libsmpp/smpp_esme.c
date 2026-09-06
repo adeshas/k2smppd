@@ -572,13 +572,13 @@ void smpp_esme_cleanup_thread(void *arg) {
         current_outbound_load = load_get(smpp_esme_data->outbound_load, 1);
         if(current_inbound_load > max_inbound_load) {
             max_inbound_load = current_inbound_load;
-            info(0, "New maximum inbound load: %f/sec", max_inbound_load);
+            debug("smpp.esme.cleanup.thread", 0, "New maximum inbound load: %f/sec", max_inbound_load);
         }
         if(current_outbound_load > max_outbound_load) {
             max_outbound_load = current_outbound_load;
-            info(0, "New maximum outbound load: %f/sec", max_outbound_load);
+            debug("smpp.esme.cleanup.thread", 0, "New maximum outbound load: %f/sec", max_outbound_load);
         }
-        info(0, "Current SMPP load is %f/sec inbound %f/sec outbound", current_inbound_load, current_outbound_load);
+        debug("smpp.esme.cleanup.thread", 0, "Current SMPP load is %f/sec inbound %f/sec outbound", current_inbound_load, current_outbound_load);
         gw_rwlock_wrlock(smpp_esme_data->lock);
         keys = dict_keys(smpp_esme_data->esmes);
 
@@ -591,7 +591,7 @@ void smpp_esme_cleanup_thread(void *arg) {
             bind_num = gwlist_len(smpp_esme_global->binds);
 
             if (bind_num > 0) {
-                info(0, "SMPP[%s] currently has %ld binds connected", octstr_get_cstr(key), bind_num);
+                debug("smpp.esme.cleanup.thread", 0, "SMPP[%s] currently has %ld binds connected", octstr_get_cstr(key), bind_num);
             } else {
                 debug("smpp.esme.cleanup.thread", 0, "SMPP[%s] currently has %ld binds connected", octstr_get_cstr(key), bind_num);
             }
@@ -604,7 +604,7 @@ void smpp_esme_cleanup_thread(void *arg) {
                 alive = 1;
                 smpp_esme = gwlist_get(smpp_esme_global->binds, j);
 
-                info(0, " -- %s:%ld (%d)-- openacks:%lu inbound:%f,outbound:%f,inbound-queue:%lu,outbound-queue:%lu,inbound-processed:%lu,outbound-processed:%lu",
+                debug("smpp.esme.cleanup.thread", 0, " -- %s:%ld (%d)-- openacks:%lu inbound:%f,outbound:%f,inbound-queue:%lu,outbound-queue:%lu,inbound-processed:%lu,outbound-processed:%lu",
                         octstr_get_cstr(smpp_esme->system_id),
                         smpp_esme->id,
                         smpp_esme->bind_type,
