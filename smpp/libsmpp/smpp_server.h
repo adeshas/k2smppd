@@ -62,6 +62,7 @@
 
 #ifndef SMPP_SERVER_H
 #include <signal.h>
+#include <stdio.h>
 
 #define SMPP_SERVER_H
 #define SMPP_SERVER_NAME "KSMPPD"
@@ -149,14 +150,50 @@ extern "C" {
         long ip_blocklist_attempts;
         Octstr *ip_blocklist_exempt_ips;
 
+        Octstr *access_logfile;
+        Octstr *access_log_format;
+        FILE *access_log;
+        RWLock *access_log_lock;
+
         long default_max_open_acks;
 
         long wait_ack_action;
     } SMPPServer;
-    
+
+    typedef struct SMPPAccessLogInfo {
+        Octstr *event;
+        Octstr *direction;
+        Octstr *pdu_type;
+        Octstr *system_id;
+        Octstr *ip;
+        Octstr *service_type;
+        Octstr *account;
+        Octstr *bearerbox_id;
+        Octstr *foreign_id;
+        Octstr *meta_data;
+        Octstr *from;
+        Octstr *to;
+        long flag_mclass;
+        long flag_mwi;
+        long flag_coding;
+        long flag_compress;
+        long flag_validity;
+        long message_length;
+        Octstr *message;
+        long udh_length;
+        Octstr *udh_data;
+        long status;
+        double srt;
+    } SMPPAccessLogInfo;
+
     SMPPServer *smpp_server_create();
     void smpp_server_destroy(SMPPServer *smpp_server);
     int smpp_server_reconfigure(SMPPServer *smpp_server);
+    int smpp_server_access_log_open(SMPPServer *smpp_server, Octstr *filename);
+    void smpp_server_access_log_reopen(SMPPServer *smpp_server);
+    void smpp_server_access_log_entry(SMPPServer *smpp_server, Octstr *line);
+    Octstr *smpp_server_access_log_format_line(SMPPServer *smpp_server, Octstr *timestamp, SMPPAccessLogInfo *info);
+    Octstr *smpp_server_access_log_timestamp();
 
 #ifdef __cplusplus
 }

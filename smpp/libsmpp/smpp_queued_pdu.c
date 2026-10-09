@@ -86,6 +86,8 @@ SMPPQueuedPDU *smpp_queued_pdu_create() {
     smpp_queued_pdu->bearerbox_id = NULL;
     smpp_queued_pdu->smpp_server = NULL;
     smpp_queued_pdu->time_sent = 0;
+    smpp_queued_pdu->time_sent_tv.tv_sec = 0;
+    smpp_queued_pdu->time_sent_tv.tv_usec = 0;
     smpp_queued_pdu->sequence = 0;
     smpp_queued_pdu->global_id = 0;
     return smpp_queued_pdu;

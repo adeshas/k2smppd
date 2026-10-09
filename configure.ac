@@ -62,6 +62,8 @@ AC_CHECK_PROG(GWCONFIG_CHECK, gw-config, yes)
 if test x"$GWCONFIG_CHECK" != x"yes" ; then
     AC_MSG_ERROR([Please install kannel gw-config before installing.])
 fi
+# MySQL client library is required for database-backed queues and routing
+AC_CHECK_LIB([mysqlclient], [mysql_init], [], [AC_MSG_ERROR([MySQL client library not found. Please install the libmysqlclient development package (e.g. libmysqlclient-dev or mysql-devel) or provide mysqlclient in your library path.])])
 # define GIT_VERSION
 AC_CHECK_PROG(GIT_CHECK, git, yes)
 if test x"$GIT_CHECK" != x"yes" ; then

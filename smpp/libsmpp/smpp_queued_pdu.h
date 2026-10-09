@@ -63,6 +63,8 @@
 #ifndef SMPP_QUEUED_PDU_H
 #define SMPP_QUEUED_PDU_H
 
+#include <sys/time.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,6 +81,7 @@ extern "C" {
         void (*callback)(void *context, long status);
         void *context;
         long time_sent;
+        struct timeval time_sent_tv;
         SMPPBearerbox *bearerbox;
         Octstr *bearerbox_id;
         SMPPServer *smpp_server;

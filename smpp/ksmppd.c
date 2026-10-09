@@ -100,11 +100,13 @@ static void signal_handler(int signum) {
             warning(0, "SIGUSR2 received, catching and re-opening logs");
             log_reopen();
             alog_reopen();
+            smpp_server_access_log_reopen(smpp_server_global);
             break;
         case SIGHUP:
             warning(0, "SIGHUP received, catching and re-opening logs");
             log_reopen();
             alog_reopen();
+            smpp_server_access_log_reopen(smpp_server_global);
             break;
 
         /* 

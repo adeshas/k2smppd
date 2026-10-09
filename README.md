@@ -54,6 +54,16 @@ Thanks to [rajesh6115](https://github.com/rajesh6115) this build can now be comp
 
 You need to have kannel installed with MySQL support in order to compile successfully. If you don't have kannel installed, you can do so by executing the following commands.
 
+The ksmppd configure script now checks for the MySQL client development package (typically `libmysqlclient-dev` on Debian/Ubuntu or `mysql-devel` on RHEL/CentOS). Install it before configuring to avoid late link-time failures.
+
+If you are unsure where the MySQL client headers and libraries are installed, try one of the following commands:
+
+* `mysql_config --libs --include` — prints the compiler and linker flags for the detected client installation (often `/usr/include/mysql` and `/usr/lib/x86_64-linux-gnu`).
+* `pkg-config --libs --cflags mysqlclient` — works on systems that ship a `mysqlclient.pc` file.
+* `rpm -ql mysql-devel | grep libmysqlclient` or `dpkg -L libmysqlclient-dev | grep libmysqlclient` — lists the files installed by the dev package on RPM/DPKG based systems.
+
+Once you know the location, ensure the include path and library directory are discoverable via your compiler flags or `LD_LIBRARY_PATH` when running `./configure`.
+
     svn co https://svn.kannel.org/gateway/trunk kannel-trunk
     cd kannel-trunk
     ./bootstrap.sh
@@ -82,6 +92,17 @@ If the above goes well (you will only need to bootstrap once)
     make
 
 You can now run using ./smpp/ksmppd.
+
+### Running tests
+
+To run the autotools-driven test targets you will need the usual build tooling (automake/aclocal, autoconf, libtool) available in your `PATH`.
+Once those dependencies are installed you can generate the build system, configure it, and execute the checks:
+
+    ./bootstrap.sh
+    ./configure
+    make check
+
+If any of the tools above are missing (for example, `aclocal` from automake), the bootstrap step will fail and you will need to install the missing package before continuing.
 
 ## Using KSMPPD
 
